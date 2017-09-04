@@ -2,6 +2,7 @@
 
 # tracrpc
 # https://bitbucket.org/olemis/bloodhound-rpc/src/d6d43ab2d1ad/trunk/tracrpc/?at=bloodhound_rpc
+# https://trac-hacks.org/browser/xmlrpcplugin/
 
 function usage(){
   echo "Usage: $0 ticket_No comment ..."
@@ -13,13 +14,16 @@ function usage(){
 USER=""
 PASSWORD=""
 ADDR=""
-PORT=""
+PORT="80"
+TRACPATH="trac"
+ENDPOINT="http://$ADDR:$PORT/$TRACPATH/login/rpc"
 APIKEY=""
 
 function updateComment () {
   
   local _NO=$1
   local _COMMENT=$2
+  local _UPDATE_COLNAME="summary"
   
   if [[ ! $_NO =~ ^[1-9][0-9]{3}[0-9]*$ ]] ; then
     echo "invalid no: '$_NO'"
@@ -30,27 +34,71 @@ function updateComment () {
     echo "empty comment: '$_NO'"
     return 1
   fi
-  
-  local _BODYJSON=$(cat << EOS
+
+  local _GETBODYJSON=$(cat << EOS
 {
-    ""method": "ticket.update",
-    "id": $_NO,
+  "method": "ticket.get",
+  "params": [
+    $_NO
+  ]
+}
+EOS
+)
+
+  if [ "$_UPDATE_COLNAME" != "action" ]; then
+
+    local _action=$(\
+      echo \
+      curl \
+      --digest \
+      -u $USER:$PASSWORD \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "X-Trac-Api-Key: $APIKEY" \
+      --data "$_GETBODYJSON" \
+      "$ENDPOINT" | jq '."action"')
+
+    local _BODYJSON=$(cat << EOS
+{
+    "method": "ticket.update",
     "params": [
-        "$_COMMENT"
+      $_NO,
+      "updated by $USER via rpc",
+      {
+        "action": "$_action",
+        "$_UPDATE_COLNAME": "$_COMMENT"
+      }
     ]
 }
 EOS
 )
+  else
   
-  url="http://$USER:$PASSWORD@$ADDR:$PORT/trac/login/jsonrpc"
-  
+    local _BODYJSON=$(cat << EOS
+{
+    "method": "ticket.update",
+    "params": [
+      $_NO,
+      "updated by $USER via rpc",
+      {
+        "action": "$_COMMENT"
+      }
+    ]
+}
+EOS
+)
+  fi
+
   echo \
   curl \
+    --digest \
+    -u $USER:$PASSWORD \
     -X POST \
     -H "Content-Type: application/json" \
     -H "X-Trac-Api-Key: $APIKEY" \
     --data "$_BODYJSON" \
-    -v "$url"
+    "$ENDPOINT" \
+    -v 
 }
 
 # main
